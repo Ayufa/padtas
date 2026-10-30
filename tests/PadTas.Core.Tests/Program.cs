@@ -83,5 +83,62 @@ Recording segA, segB;
     Check("期限 = 開始 + 相対時刻", PlaybackPlanner.DueTimestamp(rec, 1_000_000, 0) == 1_123_456);
 }
 
+// 5) 同時入力: 複数ボタン+両スティック+両トリガーが 1 フレームに丸ごと残り、
+//    保存・読込・連結を経ても欠けたり分解されたりしない (スナップショット方式の保証)
+{
+    var allButtons = (ushort)(
+        GamepadButtons.A | GamepadButtons.B | GamepadButtons.X | GamepadButtons.Y |
+        GamepadButtons.Start | GamepadButtons.Back |
+        GamepadButtons.LeftShoulder | GamepadButtons.RightShoulder |
+        GamepadButtons.LeftThumb | GamepadButtons.RightThumb |
+        GamepadButtons.DPadUp | GamepadButtons.DPadDown |
+        GamepadButtons.DPadLeft | GamepadButtons.DPadRight);
+    var combo = new GamepadState(allButtons, -32768, 32767, 12345, -23456, 255, 128);
+
+    // 5a) 1回のサンプルで同時押しがそのまま 1 フレームになる
+    var engine = new RecorderEngine(analogEpsilon: 0);
+    var t0 = QpcClock.Now;
+    engine.Start(new Recording());
+    engine.Feed(t0 + 1000, combo, force: true);
+    var rec = engine.Stop();
+    Check("同時入力が 1 フレームに全て入る", rec.Frames.Count == 2 && rec.Frames[1].State == combo);
+
+    // 5b) 時間差で押した場合も「押している状態の合成」が残る (A を保持したまま B を追加)
+    var engine2 = new RecorderEngine(analogEpsilon: 0);
+    engine2.Start(new Recording());
+    var onlyA = new GamepadState((ushort)GamepadButtons.A, 0, 0, 0, 0, 0, 0);
+    var aAndB = new GamepadState((ushort)(GamepadButtons.A | GamepadButtons.B), 0, 0, 0, 0, 0, 0);
+    engine2.Feed(t0 + 100, onlyA, force: true);
+    engine2.Feed(t0 + 200, aAndB);
+    engine2.Feed(t0 + 300, onlyA); // B だけ離す
+    var rec2 = engine2.Stop();
+    Check("保持中の A に B が重なった状態を記録", rec2.Frames[2].State == aAndB);
+    Check("B を離すと A のみに戻る", rec2.Frames[3].State == onlyA);
+
+    // 5c) 同時入力の保存/読込ラウンドトリップ
+    var path = Path.Combine(tmp, "combo.padtas");
+    var comboRec = new Recording { DurationTicks = 5000 };
+    comboRec.Frames.Add(new InputFrame(0, GamepadState.Neutral));
+    comboRec.Frames.Add(new InputFrame(2500, combo));
+    PadTasFile.Save(comboRec, path);
+    var loadedCombo = PadTasFile.Load(path);
+    Check("同時入力が保存/読込で完全一致", loadedCombo.Frames[1].State == combo);
+
+    // 5d) セグメント境界をまたいでも同時入力が欠けない
+    var folder = Path.Combine(tmp, "combo-seg");
+    var project = new TasProject { Name = "combo", FolderPath = folder };
+    var seg1 = new Recording { DurationTicks = 4000 };
+    seg1.Frames.Add(new InputFrame(0, combo));
+    var seg2 = new Recording { DurationTicks = 4000 };
+    seg2.Frames.Add(new InputFrame(0, combo));
+    seg2.Frames.Add(new InputFrame(3999, GamepadState.Neutral));
+    project.AppendSegment(seg1, "同時入力1");
+    project.AppendSegment(seg2, "同時入力2");
+    var merged = project.MergeAll();
+    Check("連結後も同時入力が両セグメントに残る",
+        merged.Frames[0].State == combo && merged.Frames[1].State == combo &&
+        merged.Frames[1].TimestampTicks == 4000);
+}
+
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} FAILURES");
 return failures;

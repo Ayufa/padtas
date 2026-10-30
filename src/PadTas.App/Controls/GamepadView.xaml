@@ -42,7 +42,7 @@
                 </LinearGradientBrush>
             </Border.Background>
         </Border>
-        <TextBlock Canvas.Left="310" Canvas.Top="66" Text="PadTAS" Foreground="#A7ABC0" FontSize="12" FontWeight="SemiBold">
+        <TextBlock Canvas.Left="310" Canvas.Top="66" Text="PadTAS" Foreground="#EDEEF2" FontSize="13" FontWeight="SemiBold">
             <TextBlock.RenderTransform><TranslateTransform X="-22"/></TextBlock.RenderTransform>
         </TextBlock>
 

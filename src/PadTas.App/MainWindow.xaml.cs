@@ -1,5 +1,7 @@
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -288,6 +290,26 @@ public partial class MainWindow : Window
     }
 
     private void SetStatus(string text) => StatusText.Text = text;
+
+    // ウィンドウのタイトルバーもダークにして、白文字のタイトルを読みやすくする
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        try
+        {
+            var hwnd = new WindowInteropHelper(this).Handle;
+            int dark = 1;
+            const int DwmwaUseImmersiveDarkMode = 20;
+            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref dark, sizeof(int));
+        }
+        catch (Exception ex)
+        {
+            CrashLog.LogException("ダークタイトルバー設定に失敗 (無視)", ex);
+        }
+    }
 
     protected override void OnClosed(EventArgs e)
     {

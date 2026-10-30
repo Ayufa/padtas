@@ -24,8 +24,8 @@
                     <Image x:Name="HeaderIcon" Width="40" Height="40"/>
                 </Grid>
                 <StackPanel Margin="12,0,0,0">
-                    <TextBlock Text="PadTAS" FontSize="21" FontWeight="Bold"/>
-                    <TextBlock Text="コントローラー TAS レコーダー" FontSize="11" Foreground="#B4B9CC"/>
+                    <TextBlock Text="PadTAS" FontSize="22" FontWeight="Bold" Foreground="#FFFFFF"/>
+                    <TextBlock Text="コントローラー TAS レコーダー" FontSize="11.5" Foreground="#C9CCDB"/>
                 </StackPanel>
             </StackPanel>
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
@@ -64,7 +64,7 @@
 
             <Border Grid.Column="0" Background="#1E2026" CornerRadius="12" Padding="14" Margin="0,0,12,0">
                 <StackPanel>
-                    <TextBlock Text="現在の入力" FontWeight="SemiBold" FontSize="14"/>
+                    <TextBlock Text="現在の入力" FontWeight="Bold" FontSize="15" Foreground="#FFFFFF"/>
                     <TextBlock Text="記録中・再生中はその入力、待機中は実コントローラーの入力をそのまま表示します"
                                Foreground="#B4B9CC" FontSize="11" Margin="0,2,0,6"/>
                     <Viewbox Stretch="Uniform" HorizontalAlignment="Left">
@@ -83,7 +83,7 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <StackPanel Grid.Row="0" Margin="0,0,0,8">
-                        <TextBlock Text="記録した入力 (セグメント)" FontWeight="SemiBold" FontSize="14"/>
+                        <TextBlock Text="記録した入力 (セグメント)" FontWeight="Bold" FontSize="15" Foreground="#FFFFFF"/>
                         <TextBlock Text="上から順に連結して再生されます" Foreground="#B4B9CC" FontSize="11" Margin="0,2,0,0"/>
                     </StackPanel>
                     <ListBox x:Name="SegmentList" Grid.Row="1"/>
