@@ -1,0 +1,86 @@
+<UserControl x:Class="PadTas.App.Controls.GamepadView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="620" Height="330">
+    <Canvas Width="620" Height="330">
+        <!-- グリップ (本体の後ろ) -->
+        <Ellipse Canvas.Left="8" Canvas.Top="138" Width="160" Height="180" Fill="#22242A">
+            <Ellipse.RenderTransform>
+                <RotateTransform Angle="-18" CenterX="80" CenterY="90"/>
+            </Ellipse.RenderTransform>
+        </Ellipse>
+        <Ellipse Canvas.Left="452" Canvas.Top="138" Width="160" Height="180" Fill="#22242A">
+            <Ellipse.RenderTransform>
+                <RotateTransform Angle="18" CenterX="80" CenterY="90"/>
+            </Ellipse.RenderTransform>
+        </Ellipse>
+
+        <!-- LT / RT トリガー量バー -->
+        <TextBlock Canvas.Left="78" Canvas.Top="0" Text="LT" Foreground="#8B8FA3" FontSize="11"/>
+        <Border Canvas.Left="100" Canvas.Top="2" Width="96" Height="12" CornerRadius="6" Background="#26282F">
+            <Rectangle x:Name="LtFill" Width="0" Height="12" HorizontalAlignment="Left" Fill="#5E9BFF" RadiusX="6" RadiusY="6"/>
+        </Border>
+        <TextBlock Canvas.Left="404" Canvas.Top="0" Text="RT" Foreground="#8B8FA3" FontSize="11"/>
+        <Border Canvas.Left="426" Canvas.Top="2" Width="96" Height="12" CornerRadius="6" Background="#26282F">
+            <Rectangle x:Name="RtFill" Width="0" Height="12" HorizontalAlignment="Left" Fill="#5E9BFF" RadiusX="6" RadiusY="6"/>
+        </Border>
+
+        <!-- LB / RB -->
+        <Border x:Name="LbPad" Canvas.Left="92" Canvas.Top="26" Width="88" Height="22" CornerRadius="11" Background="#2B2E36">
+            <TextBlock Text="LB" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#C9CCDB" FontSize="11"/>
+        </Border>
+        <Border x:Name="RbPad" Canvas.Left="440" Canvas.Top="26" Width="88" Height="22" CornerRadius="11" Background="#2B2E36">
+            <TextBlock Text="RB" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="#C9CCDB" FontSize="11"/>
+        </Border>
+
+        <!-- 本体 -->
+        <Border Canvas.Left="28" Canvas.Top="52" Width="564" Height="226" CornerRadius="113" BorderBrush="#3A3E48" BorderThickness="1">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                    <GradientStop Color="#2E313A" Offset="0"/>
+                    <GradientStop Color="#23252C" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+        </Border>
+        <TextBlock Canvas.Left="310" Canvas.Top="66" Text="PadTAS" Foreground="#6E7285" FontSize="12" FontWeight="SemiBold">
+            <TextBlock.RenderTransform><TranslateTransform X="-22"/></TextBlock.RenderTransform>
+        </TextBlock>
+
+        <!-- 左スティック -->
+        <Ellipse Canvas.Left="100" Canvas.Top="102" Width="94" Height="94" Fill="#191B20" Stroke="#3A3E48" StrokeThickness="1.5"/>
+        <Ellipse x:Name="LsKnob" Canvas.Left="121" Canvas.Top="123" Width="52" Height="52" Fill="#33363F" Stroke="#4A4E59" StrokeThickness="1.5"/>
+
+        <!-- 十字キー -->
+        <Border x:Name="DUp"    Canvas.Left="236" Canvas.Top="150" Width="27" Height="27" CornerRadius="6" Background="#26282F"/>
+        <Border x:Name="DDown"  Canvas.Left="236" Canvas.Top="204" Width="27" Height="27" CornerRadius="6" Background="#26282F"/>
+        <Border x:Name="DLeft"  Canvas.Left="209" Canvas.Top="177" Width="27" Height="27" CornerRadius="6" Background="#26282F"/>
+        <Border x:Name="DRight" Canvas.Left="263" Canvas.Top="177" Width="27" Height="27" CornerRadius="6" Background="#26282F"/>
+        <Border Canvas.Left="236" Canvas.Top="177" Width="27" Height="27" Background="#26282F"/>
+
+        <!-- Back / Start -->
+        <Ellipse x:Name="BtnBack"  Canvas.Left="288" Canvas.Top="118" Width="20" Height="20" Fill="#26282F" Stroke="#3A3E48"/>
+        <Ellipse x:Name="BtnStart" Canvas.Left="318" Canvas.Top="118" Width="20" Height="20" Fill="#26282F" Stroke="#3A3E48"/>
+
+        <!-- 右スティック -->
+        <Ellipse Canvas.Left="332" Canvas.Top="180" Width="86" Height="86" Fill="#191B20" Stroke="#3A3E48" StrokeThickness="1.5"/>
+        <Ellipse x:Name="RsKnob" Canvas.Left="351" Canvas.Top="199" Width="48" Height="48" Fill="#33363F" Stroke="#4A4E59" StrokeThickness="1.5"/>
+
+        <!-- ABXY -->
+        <Grid Canvas.Left="452" Canvas.Top="76" Width="42" Height="42">
+            <Ellipse x:Name="BtnY" Fill="#26282F" Stroke="#E8C33C" StrokeThickness="1.5"/>
+            <TextBlock Text="Y" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="#E8C33C"/>
+        </Grid>
+        <Grid Canvas.Left="408" Canvas.Top="120" Width="42" Height="42">
+            <Ellipse x:Name="BtnX" Fill="#26282F" Stroke="#5E9BFF" StrokeThickness="1.5"/>
+            <TextBlock Text="X" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="#5E9BFF"/>
+        </Grid>
+        <Grid Canvas.Left="496" Canvas.Top="120" Width="42" Height="42">
+            <Ellipse x:Name="BtnB" Fill="#26282F" Stroke="#FF6B6B" StrokeThickness="1.5"/>
+            <TextBlock Text="B" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="#FF6B6B"/>
+        </Grid>
+        <Grid Canvas.Left="452" Canvas.Top="164" Width="42" Height="42">
+            <Ellipse x:Name="BtnA" Fill="#26282F" Stroke="#3FB96F" StrokeThickness="1.5"/>
+            <TextBlock Text="A" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="Bold" Foreground="#3FB96F"/>
+        </Grid>
+    </Canvas>
+</UserControl>

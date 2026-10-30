@@ -53,6 +53,7 @@ jobs:
           --packVersion ${{ steps.version.outputs.version }}
           --packDir publish
           --mainExe PadTas.exe
+          --icon src/PadTas.App/Assets/icon.ico
           --packTitle "PadTAS"
           --packAuthors "Ayufa"
 

@@ -66,6 +66,29 @@ public sealed class TasProject
         return segment;
     }
 
+    /// <summary>セグメントを削除する (データファイルも一緒に消す)。</summary>
+    public void RemoveSegment(TasSegment segment)
+    {
+        if (FolderPath is null) throw new InvalidOperationException("FolderPath が未設定です。");
+        if (!Segments.Remove(segment)) return;
+        var path = Path.Combine(FolderPath, segment.FileName);
+        if (File.Exists(path)) File.Delete(path);
+        SaveManifest();
+    }
+
+    /// <summary>全セグメントを削除する。</summary>
+    public void RemoveAllSegments()
+    {
+        if (FolderPath is null) throw new InvalidOperationException("FolderPath が未設定です。");
+        foreach (var segment in Segments)
+        {
+            var path = Path.Combine(FolderPath, segment.FileName);
+            if (File.Exists(path)) File.Delete(path);
+        }
+        Segments.Clear();
+        SaveManifest();
+    }
+
     public Recording LoadSegment(TasSegment segment)
     {
         if (FolderPath is null) throw new InvalidOperationException("FolderPath が未設定です。");

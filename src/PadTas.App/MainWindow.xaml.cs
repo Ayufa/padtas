@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using PadTas.App.Services;
 using PadTas.Core;
@@ -10,15 +11,31 @@ public partial class MainWindow : Window
 {
     private readonly RecorderService _recorder = new();
     private readonly PlaybackService _playback = new();
+    private readonly DispatcherTimer _monitorTimer;
     private IVirtualGamepad? _virtualPad;
     private TasProject? _project;
+    private long _lastPadUiUpdate; // コントローラー表示の更新間引き用
 
     public MainWindow()
     {
         InitializeComponent();
-        _recorder.LiveState += state => Dispatcher.BeginInvoke(() =>
-            LiveStateText.Text =
-                $"Buttons: {state.Buttons:X4}  LX: {state.LeftX}  LY: {state.LeftY}  LT: {state.LeftTrigger}");
+
+        // 記録中: 実入力をそのまま表示 (UI 更新は約30fpsに間引く)
+        _recorder.LiveState += state => ShowStateThrottled(state);
+        // 再生中: 送信している入力を表示
+        _playback.StateSent += state => ShowStateThrottled(state);
+        _playback.Finished += () => Dispatcher.BeginInvoke(() => PadView.Reset());
+
+        // 待機中: 実コントローラーの入力モニター (記録も再生もしていないときだけ)
+        _monitorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
+        _monitorTimer.Tick += (_, _) =>
+        {
+            if (_recorder.IsRecording || _playback.IsPlaying) return;
+            if (XInput.TryGetState(ControllerBox.SelectedIndex, out var state, out _))
+                ShowState(state);
+        };
+        _monitorTimer.Start();
+
         StatusText.Text = $"バージョン: {UpdateService.CurrentVersion} / プロジェクトフォルダを選んでください。";
         Loaded += async (_, _) =>
         {
@@ -32,6 +49,24 @@ public partial class MainWindow : Window
             }
             catch { /* オフライン等は無視 */ }
         };
+    }
+
+    // ---------- コントローラー表示 ----------
+
+    private void ShowStateThrottled(GamepadState state)
+    {
+        var now = Environment.TickCount64;
+        if (now - _lastPadUiUpdate < 33) return;
+        _lastPadUiUpdate = now;
+        Dispatcher.BeginInvoke(() => ShowState(state));
+    }
+
+    private void ShowState(GamepadState state)
+    {
+        PadView.SetState(state);
+        LiveStateText.Text =
+            $"Buttons: {state.Buttons:X4}   LX: {state.LeftX,6}  LY: {state.LeftY,6}   " +
+            $"RX: {state.RightX,6}  RY: {state.RightY,6}   LT: {state.LeftTrigger,3}  RT: {state.RightTrigger,3}";
     }
 
     // ---------- プロジェクト ----------
@@ -60,7 +95,43 @@ public partial class MainWindow : Window
         if (_project is null) return;
         var i = 1;
         foreach (var s in _project.Segments)
-            SegmentList.Items.Add($"{i++}. {s.Name}  ({s.DurationSeconds:F3} 秒)  [{s.FileName}]");
+            SegmentList.Items.Add($"{i++}. {s.Name}  ({s.DurationSeconds:F3} 秒)");
+    }
+
+    // ---------- 入力の削除 ----------
+
+    private void DeleteSegment_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null) { SetStatus("先にプロジェクトフォルダを選んでください。"); return; }
+        var index = SegmentList.SelectedIndex;
+        if (index < 0 || index >= _project.Segments.Count)
+        { SetStatus("削除する入力をリストから選んでください。"); return; }
+
+        var segment = _project.Segments[index];
+        if (MessageBox.Show(
+                $"「{segment.Name}」({segment.DurationSeconds:F3} 秒) を削除します。\n" +
+                "記録ファイルも消え、元に戻せません。よろしいですか?",
+                "入力の削除", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+
+        _project.RemoveSegment(segment);
+        RefreshSegmentList();
+        SetStatus($"削除しました: {segment.Name} (残り {_project.Segments.Count} 件)");
+    }
+
+    private void DeleteAll_Click(object sender, RoutedEventArgs e)
+    {
+        if (_project is null) { SetStatus("先にプロジェクトフォルダを選んでください。"); return; }
+        if (_project.Segments.Count == 0) { SetStatus("削除できる入力がありません。"); return; }
+        if (MessageBox.Show(
+                $"このプロジェクトの入力 {_project.Segments.Count} 件を全て削除します。\n" +
+                "記録ファイルも消え、元に戻せません。よろしいですか?",
+                "全ての入力を削除", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+            return;
+
+        _project.RemoveAllSegments();
+        RefreshSegmentList();
+        SetStatus("全ての入力を削除しました。");
     }
 
     // ---------- 記録 ----------
@@ -139,6 +210,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _monitorTimer.Stop();
         if (_recorder.IsRecording) _recorder.StopRecording();
         _playback.Stop();
         _virtualPad?.Dispose();

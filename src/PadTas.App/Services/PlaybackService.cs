@@ -13,6 +13,7 @@ public sealed class PlaybackService
     public bool IsPlaying => _cts is { IsCancellationRequested: false };
 
     public event Action<int, int>? Progress; // 現在フレーム / 総フレーム
+    public event Action<GamepadState>? StateSent; // 送信した状態 (コントローラー表示用)
     public event Action? Finished;
 
     public void Play(Recording recording, IVirtualGamepad output)
@@ -47,6 +48,7 @@ public sealed class PlaybackService
                 WaitUntil(due, token);
                 if (token.IsCancellationRequested) break;
                 output.Send(recording.Frames[i].State);
+                StateSent?.Invoke(recording.Frames[i].State);
                 Progress?.Invoke(i + 1, recording.Frames.Count);
             }
             // 終端まで最終状態を保持してから離す

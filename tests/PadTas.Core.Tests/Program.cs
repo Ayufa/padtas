@@ -59,6 +59,23 @@ Recording segA, segB;
     Check("project.json ラウンドトリップ", reloaded.Segments.Count == 2 && reloaded.Segments[1].Name == "続き");
 }
 
+// 3.5) セグメント削除: ファイルも消え、マニフェストにも残らない
+{
+    var folder = Path.Combine(tmp, "del-test");
+    var project = new TasProject { Name = "del", FolderPath = folder };
+    var s1 = project.AppendSegment(segA, "消す方");
+    var s2 = project.AppendSegment(segB, "残す方");
+    var file1 = Path.Combine(folder, s1.FileName);
+    Check("削除前にファイルあり", File.Exists(file1));
+    project.RemoveSegment(s1);
+    Check("選択削除で 1 件に", project.Segments.Count == 1 && project.Segments[0].Name == "残す方");
+    Check("削除したファイルが消えた", !File.Exists(file1));
+    Check("残したファイルはある", File.Exists(Path.Combine(folder, s2.FileName)));
+    Check("再読込でも 1 件", TasProject.Load(folder).Segments.Count == 1);
+    project.RemoveAllSegments();
+    Check("全削除で 0 件＆ファイルなし", project.Segments.Count == 0 && !File.Exists(Path.Combine(folder, s2.FileName)));
+}
+
 // 4) 再生スケジュールは絶対時刻 (ドリフトしない)
 {
     var rec = new Recording();
