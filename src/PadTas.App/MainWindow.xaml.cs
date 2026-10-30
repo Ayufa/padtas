@@ -19,7 +19,9 @@ public partial class MainWindow : Window
 
     public MainWindow()
     {
+        CrashLog.Log("MainWindow 生成開始");
         InitializeComponent();
+        CrashLog.Log("MainWindow XAML 読み込み完了");
 
         // 記録中: 実入力をそのまま表示 (UI 更新は約30fpsに間引く)
         _recorder.LiveState += state => ShowStateThrottled(state);
@@ -40,6 +42,7 @@ public partial class MainWindow : Window
         StatusText.Text = $"バージョン: {UpdateService.CurrentVersion} / プロジェクトフォルダを選んでください。";
         Loaded += async (_, _) =>
         {
+            CrashLog.Log("MainWindow 表示完了 (Loaded)");
             RefreshDriverButton();
 
             // 起動時の自動更新チェック (インストール版のみ・失敗しても起動は続行)
