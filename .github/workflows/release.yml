@@ -1,0 +1,66 @@
+name: Release
+
+# vX.Y.Z タグを push すると、Windows ビルド → Velopack パッケージ →
+# GitHub Release 公開まで自動で行う。インストール済みアプリは
+# 次回起動時にこの Release を検知してアプリ内更新する。
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Test Core
+        run: dotnet run --project tests/PadTas.Core.Tests -c Release
+
+      - name: Publish app
+        run: >
+          dotnet publish src/PadTas.App/PadTas.App.csproj
+          -c Release -r win-x64 --self-contained true
+          -o publish -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Install Velopack CLI
+        run: dotnet tool install -g vpk
+
+      - name: Download previous release (差分パッケージ生成用)
+        continue-on-error: true
+        run: >
+          vpk download github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack
+        run: >
+          vpk pack
+          --packId Ayufa.PadTas
+          --packVersion ${{ steps.version.outputs.version }}
+          --packDir publish
+          --mainExe PadTas.exe
+          --packTitle "PadTAS"
+          --packAuthors "Ayufa"
+
+      - name: Upload to GitHub Release
+        run: >
+          vpk upload github
+          --repoUrl https://github.com/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }}
+          --publish
+          --releaseName "PadTAS ${{ steps.version.outputs.version }}"
+          --tag ${{ github.ref_name }}

@@ -1,0 +1,20 @@
+# .NET
+bin/
+obj/
+publish/
+out/
+*.user
+.vs/
+
+# Velopack のパッケージ出力
+Releases/
+
+# プレイ記録 (個人データなのでリポジトリに入れない)
+*.padtas
+projects/
+
+# OS / エディタ
+Thumbs.db
+Desktop.ini
+.idea/
+*.swp

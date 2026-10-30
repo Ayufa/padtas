@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Linux / CI の非 Windows 環境でもコンパイル確認できるようにする -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <StartupObject>PadTas.App.Program</StartupObject>
+    <AssemblyName>PadTas</AssemblyName>
+    <Version>0.1.0</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- アプリ内自動更新 (GitHub Releases 連携、差分アップデート対応) -->
+    <PackageReference Include="Velopack" Version="1.2.161" />
+    <!-- 再生用: 仮想 Xbox 360 コントローラーを作る (別途 ViGEmBus ドライバが必要) -->
+    <PackageReference Include="Nefarius.ViGEm.Client" Version="1.21.256" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PadTas.Core\PadTas.Core.csproj" />
+  </ItemGroup>
+
+</Project>
