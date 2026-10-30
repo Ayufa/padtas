@@ -10,8 +10,7 @@ namespace PadTas.App.Services;
 /// </summary>
 public static class UpdateService
 {
-    // TODO: GitHub リポジトリ作成後に書き換える
-    public const string GitHubRepoUrl = "https://github.com/OWNER/padtas";
+    public const string GitHubRepoUrl = "https://github.com/Ayufa/padtas";
 
     private static UpdateManager CreateManager()
         => new(new GithubSource(GitHubRepoUrl, null, false));
