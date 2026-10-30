@@ -17,6 +17,8 @@ public partial class MainWindow : Window
     private readonly PlaybackService _playback = new();
     private PlaybackVerifier? _verifier;
     private Recording? _verifyingRecording;
+    private CancellationTokenSource? _startCts; // 遅延/入力待ち/画面トリガーの待機中止用
+    private (int X, int Y, (byte R, byte G, byte B) Color)? _triggerPixel; // 画面トリガーの基準色
     private readonly DispatcherTimer _monitorTimer;
     private IVirtualGamepad? _virtualPad;
     private TasProject? _project;
@@ -236,6 +238,7 @@ public partial class MainWindow : Window
     {
         if (_project is null || _project.Segments.Count == 0)
         { SetStatus("再生できるセグメントがありません。"); return; }
+        if (_playback.IsPlaying || _startCts is not null) return;
         try
         {
             _virtualPad ??= new ViGEmGamepad();
@@ -253,14 +256,116 @@ public partial class MainWindow : Window
             SetStatus("仮想コントローラーを作れませんでした: " + ex.Message);
             return;
         }
+
         var merged = _project.MergeAll();
+        var mode = StartModeBox.SelectedIndex;
+        if (mode == 0)
+        {
+            BeginPlayback(merged);
+            return;
+        }
+        if (mode == 5 && _triggerPixel is null)
+        { SetStatus("画面トリガーには先に「画面トリガー用の色を拾う」で、ロード中などに色が変わる場所を指定してください。"); return; }
+
+        // 待機系 (遅延 / 入力待ち / 画面トリガー): 停止ボタンで中止できる
+        _startCts = new CancellationTokenSource();
+        var ct = _startCts.Token;
+        PlayButton.IsEnabled = false;
+        try
+        {
+            var ready = mode switch
+            {
+                1 or 2 or 3 => await WaitSecondsAsync(mode switch { 1 => 3, 2 => 5, _ => 10 }, ct),
+                4 => await WaitForButtonAsync(ct),
+                5 => await WaitForPixelChangeAsync(ct),
+                _ => false,
+            };
+            if (ready && !ct.IsCancellationRequested) BeginPlayback(merged);
+            else if (!ct.IsCancellationRequested) SetStatus("開始の合図が来ないままタイムアウトしました。");
+        }
+        catch (OperationCanceledException) { /* 停止ボタン */ }
+        finally
+        {
+            _startCts?.Dispose();
+            _startCts = null;
+            PlayButton.IsEnabled = true;
+        }
+    }
+
+    private void BeginPlayback(Recording merged)
+    {
         _verifyingRecording = merged; // Started イベントで読み戻し検証が始まる
-        _playback.Play(merged, _virtualPad);
-        SetStatus($"再生中: 全 {_project.Segments.Count} セグメント / {merged.Frames.Count} フレーム / {merged.DurationSeconds:F3} 秒");
+        _playback.Play(merged, _virtualPad!);
+        SetStatus($"再生中: 全 {_project!.Segments.Count} セグメント / {merged.Frames.Count} フレーム / {merged.DurationSeconds:F3} 秒");
+    }
+
+    private async Task<bool> WaitSecondsAsync(int seconds, CancellationToken ct)
+    {
+        SetStatus($"{seconds} 秒後に再生を開始します… (中止は再生停止ボタン)");
+        await Task.Delay(TimeSpan.FromSeconds(seconds), ct);
+        return true;
+    }
+
+    /// <summary>入力待ち: 実コントローラーのボタンが押された瞬間を開始の合図にする。
+    /// ゲーム側の操作 (ステージ開始ボタン等) と再生開始を同期させる用途。</summary>
+    private async Task<bool> WaitForButtonAsync(CancellationToken ct)
+    {
+        SetStatus("入力待ち: コントローラーのボタンを押すとその瞬間に再生を開始します… (中止は再生停止ボタン)");
+        var userIndex = ControllerBox.SelectedIndex;
+        return await Task.Run(() =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                if (XInput.TryGetState(userIndex, out var state, out _) &&
+                    (state.Buttons != 0 || state.LeftTrigger > 30 || state.RightTrigger > 30))
+                    return true;
+                Thread.Sleep(1);
+            }
+            return false;
+        }, ct);
+    }
+
+    /// <summary>画面トリガー: 指定した 1 ピクセルの色が基準から変わった瞬間に開始。
+    /// ロード画面 (真っ黒) → 画面表示 のような変化を合図にすると、
+    /// ロード時間のばらつきを吸収して毎回同じタイミングで始められる。</summary>
+    private async Task<bool> WaitForPixelChangeAsync(CancellationToken ct)
+    {
+        var (x, y, baseline) = _triggerPixel!.Value;
+        SetStatus($"画面トリガー待機中: ({x}, {y}) の色が変わると再生を開始します… (中止は再生停止ボタン、制限 120 秒)");
+        return await Task.Run(() =>
+        {
+            var deadline = Environment.TickCount64 + 120_000;
+            while (!ct.IsCancellationRequested && Environment.TickCount64 < deadline)
+            {
+                var sample = ScreenPixel.Sample(x, y);
+                if (sample is not null && ScreenPixel.Difference(sample.Value, baseline) > 60)
+                    return true;
+                Thread.Sleep(2);
+            }
+            return false;
+        }, ct);
+    }
+
+    private async void PickPixel_Click(object sender, RoutedEventArgs e)
+    {
+        SetStatus("3 秒後にマウスカーソルのある場所の色を拾います。その場所 (ロード中に色が変わる場所) にカーソルを合わせて待ってください…");
+        await Task.Delay(3000);
+        if (!ScreenPixel.GetCursorPos(out var point))
+        { SetStatus("カーソル位置を取得できませんでした。"); return; }
+        var sample = ScreenPixel.Sample(point.X, point.Y);
+        if (sample is null)
+        { SetStatus("その場所の色を取得できませんでした。別の場所でもう一度お試しください。"); return; }
+        _triggerPixel = (point.X, point.Y, sample.Value);
+        PixelSwatch.Background = new System.Windows.Media.SolidColorBrush(
+            System.Windows.Media.Color.FromRgb(sample.Value.R, sample.Value.G, sample.Value.B));
+        PixelInfoText.Text = $"({point.X}, {point.Y}) RGB({sample.Value.R}, {sample.Value.G}, {sample.Value.B})";
+        SetStatus($"画面トリガーの基準色を設定しました: ({point.X}, {point.Y}) RGB({sample.Value.R}, {sample.Value.G}, {sample.Value.B})。" +
+                  "開始方法で「画面の色が変わったら開始」を選ぶと、この色が変わった瞬間に再生が始まります。");
     }
 
     private void StopPlay_Click(object sender, RoutedEventArgs e)
     {
+        _startCts?.Cancel();
         _playback.Stop();
         SetStatus("再生を止めました。");
     }
@@ -327,24 +432,72 @@ public partial class MainWindow : Window
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
+    // グローバルホットキー: ゲームにフォーカスしたまま再生/記録を操作する
+    [DllImport("user32.dll")]
+    private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint vk);
+
+    [DllImport("user32.dll")]
+    private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
+
+    private const int WmHotkey = 0x0312;
+    private const int HotkeyPlayId = 9009;
+    private const int HotkeyRecordId = 9010;
+    private IntPtr _hwnd;
+
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
         try
         {
-            var hwnd = new WindowInteropHelper(this).Handle;
+            _hwnd = new WindowInteropHelper(this).Handle;
             int dark = 1;
             const int DwmwaUseImmersiveDarkMode = 20;
-            DwmSetWindowAttribute(hwnd, DwmwaUseImmersiveDarkMode, ref dark, sizeof(int));
+            DwmSetWindowAttribute(_hwnd, DwmwaUseImmersiveDarkMode, ref dark, sizeof(int));
         }
         catch (Exception ex)
         {
             CrashLog.LogException("ダークタイトルバー設定に失敗 (無視)", ex);
         }
+        try
+        {
+            var source = HwndSource.FromHwnd(_hwnd);
+            source?.AddHook(WndProcHook);
+            var f9 = RegisterHotKey(_hwnd, HotkeyPlayId, 0, 0x78);   // F9
+            var f10 = RegisterHotKey(_hwnd, HotkeyRecordId, 0, 0x79); // F10
+            CrashLog.Log($"ホットキー登録: F9={f9}, F10={f10}");
+        }
+        catch (Exception ex)
+        {
+            CrashLog.LogException("ホットキー登録に失敗 (無視)", ex);
+        }
+    }
+
+    private IntPtr WndProcHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg != WmHotkey) return IntPtr.Zero;
+        handled = true;
+        var id = wParam.ToInt32();
+        if (id == HotkeyPlayId)
+        {
+            if (_playback.IsPlaying || _startCts is not null) StopPlay_Click(this, new RoutedEventArgs());
+            else Play_Click(this, new RoutedEventArgs());
+        }
+        else if (id == HotkeyRecordId)
+        {
+            if (_recorder.IsRecording) StopRecord_Click(this, new RoutedEventArgs());
+            else Record_Click(this, new RoutedEventArgs());
+        }
+        return IntPtr.Zero;
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        if (_hwnd != IntPtr.Zero)
+        {
+            UnregisterHotKey(_hwnd, HotkeyPlayId);
+            UnregisterHotKey(_hwnd, HotkeyRecordId);
+        }
+        _startCts?.Cancel();
         _monitorTimer.Stop();
         if (_recorder.IsRecording) _recorder.StopRecording();
         _playback.Stop();
