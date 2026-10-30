@@ -23,8 +23,10 @@
                     <TextBlock Text="コントローラー TAS レコーダー" FontSize="11" Foreground="#9BA0B4"/>
                 </StackPanel>
             </StackPanel>
-            <Button Content="アップデート確認" HorizontalAlignment="Right" VerticalAlignment="Center"
-                    Click="CheckUpdate_Click"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="DriverButton" Content="ドライバ確認中…" Click="DriverButton_Click"/>
+                <Button Content="アップデート確認" Margin="8,0,0,0" Click="CheckUpdate_Click"/>
+            </StackPanel>
         </Grid>
 
         <!-- プロジェクト -->

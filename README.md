@@ -29,8 +29,9 @@ Windows 用の **コントローラー TAS (Tool-Assisted Speedrun) レコーダ
 
 - Windows 10 / 11 (x64)
 - 入力: XInput 対応コントローラー (Xbox コントローラー等)
-- 再生時: [ViGEmBus ドライバ 1.22.0](https://github.com/nefarius/ViGEmBus/releases) のインストールが必要
-  - ※ ViGEmBus は開発終了済みですが、最終版は署名済みで Windows 10/11 で動作します
+- 再生時: ViGEmBus ドライバ 1.22.0 が必要ですが、**アプリが未導入を検出して自動で導入します**
+  (公式 GitHub から取得し SHA-256 照合後に実行。管理者許可ダイアログだけ手動で「はい」を押してください)
+  - ※ ViGEmBus は開発終了済みですが、最終版は署名済みで Windows 10/11 で動作します。手動導入も可: [公式リリース](https://github.com/nefarius/ViGEmBus/releases)
 
 ## 使い方
 

@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using Nefarius.ViGEm.Client.Exceptions;
 using PadTas.App.Services;
 using PadTas.Core;
 
@@ -39,6 +40,8 @@ public partial class MainWindow : Window
         StatusText.Text = $"バージョン: {UpdateService.CurrentVersion} / プロジェクトフォルダを選んでください。";
         Loaded += async (_, _) =>
         {
+            RefreshDriverButton();
+
             // 起動時の自動更新チェック (インストール版のみ・失敗しても起動は続行)
             try
             {
@@ -163,7 +166,7 @@ public partial class MainWindow : Window
 
     // ---------- 再生 ----------
 
-    private void Play_Click(object sender, RoutedEventArgs e)
+    private async void Play_Click(object sender, RoutedEventArgs e)
     {
         if (_project is null || _project.Segments.Count == 0)
         { SetStatus("再生できるセグメントがありません。"); return; }
@@ -171,9 +174,17 @@ public partial class MainWindow : Window
         {
             _virtualPad ??= new ViGEmGamepad();
         }
+        catch (VigemBusNotFoundException)
+        {
+            SetStatus("ViGEmBus ドライバが入っていません。");
+            if (MessageBox.Show("再生には ViGEmBus ドライバが必要です。今すぐインストールしますか?",
+                    "ドライバ未導入", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                await InstallDriverAsync();
+            return;
+        }
         catch (Exception ex)
         {
-            SetStatus("仮想コントローラーを作れませんでした。ViGEmBus ドライバ (1.22.0) が必要です: " + ex.Message);
+            SetStatus("仮想コントローラーを作れませんでした: " + ex.Message);
             return;
         }
         var merged = _project.MergeAll();
@@ -185,6 +196,43 @@ public partial class MainWindow : Window
     {
         _playback.Stop();
         SetStatus("再生を止めました。");
+    }
+
+    // ---------- ViGEmBus ドライバ ----------
+
+    private void RefreshDriverButton()
+    {
+        var installed = ViGEmDriverService.IsInstalled();
+        DriverButton.Content = installed ? "✓ ドライバ導入済み" : "ドライバをインストール";
+        DriverButton.IsEnabled = !installed;
+    }
+
+    private async void DriverButton_Click(object sender, RoutedEventArgs e)
+        => await InstallDriverAsync();
+
+    private async Task InstallDriverAsync()
+    {
+        if (MessageBox.Show(
+                "再生に必要な ViGEmBus ドライバ (仮想コントローラー用) をインストールします。\n" +
+                "公式 GitHub からダウンロードし、照合してから実行します。\n" +
+                "途中で Windows の管理者許可ダイアログが出たら「はい」を押してください。",
+                "ドライバのインストール", MessageBoxButton.OKCancel) != MessageBoxResult.OK)
+            return;
+
+        DriverButton.IsEnabled = false;
+        var result = await ViGEmDriverService.InstallAsync(
+            msg => Dispatcher.BeginInvoke(() => SetStatus(msg)));
+        RefreshDriverButton();
+        SetStatus(result switch
+        {
+            ViGEmDriverService.InstallResult.Installed =>
+                "ドライバをインストールしました。再生が使えます。",
+            ViGEmDriverService.InstallResult.NeedsReboot =>
+                "インストーラーは終了しましたが、ドライバを検出できませんでした。PCを再起動してからもう一度お試しください。",
+            ViGEmDriverService.InstallResult.Cancelled =>
+                "管理者許可が得られなかったため、ドライバのインストールを中止しました。",
+            _ => "ドライバのインストールに失敗しました。通信環境を確認してもう一度お試しください。",
+        });
     }
 
     // ---------- 更新 ----------
