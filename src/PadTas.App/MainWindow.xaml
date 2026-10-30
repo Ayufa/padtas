@@ -51,6 +51,8 @@
                     <ComboBoxItem Content="500 Hz"/>
                     <ComboBoxItem Content="1000 Hz"/>
                     <ComboBoxItem Content="2000 Hz"/>
+                    <ComboBoxItem Content="4000 Hz"/>
+                    <ComboBoxItem Content="8000 Hz"/>
                 </ComboBox>
             </StackPanel>
         </Border>

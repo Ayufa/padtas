@@ -14,6 +14,7 @@ public sealed class PlaybackService
 
     public event Action<int, int>? Progress; // 現在フレーム / 総フレーム
     public event Action<GamepadState>? StateSent; // 送信した状態 (コントローラー表示用)
+    public event Action<long>? Started; // 再生開始 QPC (読み戻し検証の基準時刻)
     public event Action? Finished;
 
     public void Play(Recording recording, IVirtualGamepad output)
@@ -41,6 +42,7 @@ public sealed class PlaybackService
         try
         {
             var start = QpcClock.Now;
+            Started?.Invoke(start);
             for (var i = 0; i < recording.Frames.Count; i++)
             {
                 if (token.IsCancellationRequested) break;

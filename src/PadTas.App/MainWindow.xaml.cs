@@ -15,6 +15,8 @@ public partial class MainWindow : Window
 {
     private readonly RecorderService _recorder = new();
     private readonly PlaybackService _playback = new();
+    private PlaybackVerifier? _verifier;
+    private Recording? _verifyingRecording;
     private readonly DispatcherTimer _monitorTimer;
     private IVirtualGamepad? _virtualPad;
     private TasProject? _project;
@@ -31,7 +33,32 @@ public partial class MainWindow : Window
         _recorder.LiveState += state => ShowStateThrottled(state);
         // 再生中: 送信している入力を表示
         _playback.StateSent += state => ShowStateThrottled(state);
-        _playback.Finished += () => Dispatcher.BeginInvoke(() => PadView.Reset());
+        // 再生の読み戻し検証: 開始時刻を受けて仮想コントローラーを監視し、
+        // 終了後に「送った状態」と「実際に読めた状態」を照合して報告する
+        _playback.Started += startQpc =>
+        {
+            if (_verifyingRecording is null) return;
+            _verifier = new PlaybackVerifier();
+            _verifier.Begin(startQpc, _verifyingRecording);
+        };
+        _playback.Finished += () =>
+        {
+            Dispatcher.BeginInvoke(() => PadView.Reset());
+            var verifier = _verifier;
+            _verifier = null;
+            _verifyingRecording = null;
+            if (verifier is null) return;
+            _ = Task.Run(() =>
+            {
+                var result = verifier.StopAndEvaluate();
+                CrashLog.Log("再生検証: " + result.Detail);
+                Dispatcher.BeginInvoke(() => SetStatus(
+                    "再生検証: " + result.Summary +
+                    (result.Summary.Contains("不一致")
+                        ? " ※ゲームが実コントローラーと仮想の両方を見ていると入力が競合します。実機の電源を切って再試行してみてください。"
+                        : "")));
+            });
+        };
 
         // 待機中: 実コントローラーの入力モニター (記録も再生もしていないときだけ)
         _monitorTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(33) };
@@ -47,6 +74,7 @@ public partial class MainWindow : Window
         Loaded += async (_, _) =>
         {
             CrashLog.Log("MainWindow 表示完了 (Loaded)");
+            _ = Task.Run(ShortcutService.EnsureStartMenuShortcut);
             RefreshDriverButton();
 
             // 起動時の自動更新チェック (インストール版のみ・失敗しても起動は続行)
@@ -177,13 +205,16 @@ public partial class MainWindow : Window
     private void Record_Click(object sender, RoutedEventArgs e)
     {
         if (_project is null) { SetStatus("先にプロジェクトフォルダを選んでください。"); return; }
-        var polling = new[] { 250, 500, 1000, 2000 }[PollingBox.SelectedIndex];
+        var polling = new[] { 250, 500, 1000, 2000, 4000, 8000 }[PollingBox.SelectedIndex];
         try
         {
             _recorder.StartRecording(ControllerBox.SelectedIndex, polling);
             RecordButton.IsEnabled = false;
             StopRecordButton.IsEnabled = true;
-            SetStatus($"記録中… (セグメント {_project.Segments.Count + 1} 件目として末尾に追加されます)");
+            SetStatus($"記録中… (セグメント {_project.Segments.Count + 1} 件目として末尾に追加されます)" +
+                      (polling >= 4000
+                          ? $" ※{polling} Hz は CPU を 1 コア占有します。実際に取れる細かさはコントローラー自体のポーリングレートが上限です。"
+                          : ""));
         }
         catch (Exception ex) { SetStatus($"記録を開始できませんでした: {ex.Message}"); }
     }
@@ -223,6 +254,7 @@ public partial class MainWindow : Window
             return;
         }
         var merged = _project.MergeAll();
+        _verifyingRecording = merged; // Started イベントで読み戻し検証が始まる
         _playback.Play(merged, _virtualPad);
         SetStatus($"再生中: 全 {_project.Segments.Count} セグメント / {merged.Frames.Count} フレーム / {merged.DurationSeconds:F3} 秒");
     }
