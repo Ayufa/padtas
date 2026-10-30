@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:controls="clr-namespace:PadTas.App.Controls"
-        Title="PadTAS - コントローラー TAS レコーダー" Icon="Assets/icon.ico" Width="1060" Height="740"
+        Title="PadTAS - コントローラー TAS レコーダー" Width="1060" Height="740"
         MinWidth="900" MinHeight="640"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="18">
@@ -17,7 +17,12 @@
         <!-- ヘッダー -->
         <Grid Grid.Row="0" Margin="0,0,0,12">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                <Image Source="Assets/icon.ico" Width="40" Height="40"/>
+                <Grid Width="40" Height="40">
+                    <Border Background="#4F7CFF" CornerRadius="10">
+                        <TextBlock Text="🎮" FontSize="19" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <Image x:Name="HeaderIcon" Width="40" Height="40"/>
+                </Grid>
                 <StackPanel Margin="12,0,0,0">
                     <TextBlock Text="PadTAS" FontSize="21" FontWeight="Bold"/>
                     <TextBlock Text="コントローラー TAS レコーダー" FontSize="11" Foreground="#9BA0B4"/>

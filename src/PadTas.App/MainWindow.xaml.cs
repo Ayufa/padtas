@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Nefarius.ViGEm.Client.Exceptions;
@@ -22,6 +23,7 @@ public partial class MainWindow : Window
         CrashLog.Log("MainWindow 生成開始");
         InitializeComponent();
         CrashLog.Log("MainWindow XAML 読み込み完了");
+        LoadIcon();
 
         // 記録中: 実入力をそのまま表示 (UI 更新は約30fpsに間引く)
         _recorder.LiveState += state => ShowStateThrottled(state);
@@ -55,6 +57,34 @@ public partial class MainWindow : Window
             }
             catch { /* オフライン等は無視 */ }
         };
+    }
+
+    /// <summary>
+    /// アイコンは exe と同じフォルダの実ファイルから読み込む。
+    /// XAML のリソース参照で読み込むと、埋め込みに失敗した環境で
+    /// 起動自体が落ちる事故が起きた (v0.3.1 までの不具合) ため、
+    /// ここは「失敗しても起動を止めない」読み込みに徹する。
+    /// </summary>
+    private void LoadIcon()
+    {
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "icon.ico");
+            if (!File.Exists(iconPath))
+            {
+                CrashLog.Log($"アイコンファイルなし (スキップ): {iconPath}");
+                return;
+            }
+            using var fs = File.OpenRead(iconPath);
+            var frame = BitmapFrame.Create(fs, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+            frame.Freeze();
+            Icon = frame;
+            HeaderIcon.Source = frame;
+        }
+        catch (Exception ex)
+        {
+            CrashLog.LogException("アイコン読み込み失敗 (無視して起動継続)", ex);
+        }
     }
 
     // ---------- コントローラー表示 ----------
