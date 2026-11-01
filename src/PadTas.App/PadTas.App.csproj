@@ -10,7 +10,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <StartupObject>PadTas.App.Program</StartupObject>
     <AssemblyName>PadTas</AssemblyName>
-    <Version>0.5.0</Version>
+    <Version>0.5.1</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
   </PropertyGroup>

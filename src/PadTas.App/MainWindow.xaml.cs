@@ -22,19 +22,25 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _monitorTimer;
     private IVirtualGamepad? _virtualPad;
     private TasProject? _project;
-    private long _lastPadUiUpdate; // コントローラー表示の更新間引き用
+    private readonly object _uiGate = new();
+    private readonly Action _applyLiveState;
+    private GamepadState _uiPending;
+    private int _uiQueued;
+    private bool _hasPaintedState;
+    private GamepadState _paintedState;
 
     public MainWindow()
     {
+        _applyLiveState = ApplyLiveState;
         CrashLog.Log("MainWindow 生成開始");
         InitializeComponent();
         CrashLog.Log("MainWindow XAML 読み込み完了");
         LoadIcon();
 
-        // 記録中: 実入力をそのまま表示 (UI 更新は約30fpsに間引く)
-        _recorder.LiveState += state => ShowStateThrottled(state);
+        // 記録中: 実入力をそのまま表示 (送出側が約30fpsに間引く)
+        _recorder.LiveState += ShowStateThrottled;
         // 再生中: 送信している入力を表示
-        _playback.StateSent += state => ShowStateThrottled(state);
+        _playback.StateSent += ShowStateThrottled;
         // 再生の読み戻し検証: 開始時刻を受けて仮想コントローラーを監視し、
         // 終了後に「送った状態」と「実際に読めた状態」を照合して報告する
         _playback.Started += startQpc =>
@@ -45,7 +51,11 @@ public partial class MainWindow : Window
         };
         _playback.Finished += () =>
         {
-            Dispatcher.BeginInvoke(() => PadView.Reset());
+            Dispatcher.BeginInvoke(() =>
+            {
+                _hasPaintedState = false;
+                PadView.Reset();
+            });
             var verifier = _verifier;
             _verifier = null;
             _verifyingRecording = null;
@@ -72,22 +82,54 @@ public partial class MainWindow : Window
         };
         _monitorTimer.Start();
 
-        StatusText.Text = $"バージョン: {UpdateService.CurrentVersion} / プロジェクトフォルダを選んでください。";
-        Loaded += async (_, _) =>
+        Loaded += (_, _) =>
         {
             CrashLog.Log("MainWindow 表示完了 (Loaded)");
             _ = Task.Run(ShortcutService.EnsureStartMenuShortcut);
-            RefreshDriverButton();
-
-            // 起動時の自動更新チェック (インストール版のみ・失敗しても起動は続行)
-            try
+            // ドライバ接続とバージョン照会はウィンドウ表示をブロックしない
+            _ = Task.Run(() =>
             {
-                var update = await UpdateService.CheckAsync();
-                if (update is not null)
-                    StatusText.Text = $"新しいバージョン {update.TargetFullRelease.Version} があります。" +
-                                      "「アップデート確認」から適用できます。";
-            }
-            catch { /* オフライン等は無視 */ }
+                var installed = false;
+                try { installed = ViGEmDriverService.IsInstalled(); }
+                catch { /* 表示は未導入のまま */ }
+                Dispatcher.BeginInvoke(() =>
+                {
+                    // ユーザーがすでにインストールを始めていたら、その操作を上書きしない
+                    if ((DriverButton.Content as string) == "ドライバ確認中…" && DriverButton.IsEnabled)
+                        ApplyDriverButton(installed);
+                });
+            });
+            _ = Task.Run(async () =>
+            {
+                string? versionText = null;
+                try
+                {
+                    versionText = $"バージョン: {UpdateService.CurrentVersion} / プロジェクトフォルダを選んでください。";
+                }
+                catch { /* 開発実行では dev に落ちるが、ここでも起動は止めない */ }
+
+                if (versionText is not null)
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                    {
+                        if (StatusText.Text == "プロジェクトフォルダを選んでください。")
+                            StatusText.Text = versionText;
+                    });
+                }
+
+                // 起動時の自動更新チェック (インストール版のみ・失敗しても起動は続行)
+                try
+                {
+                    var update = await UpdateService.CheckAsync();
+                    if (update is not null)
+                    {
+                        await Dispatcher.InvokeAsync(() => StatusText.Text =
+                            $"新しいバージョン {update.TargetFullRelease.Version} があります。" +
+                            "「アップデート確認」から適用できます。");
+                    }
+                }
+                catch { /* オフライン等は無視 */ }
+            });
         };
     }
 
@@ -123,18 +165,80 @@ public partial class MainWindow : Window
 
     private void ShowStateThrottled(GamepadState state)
     {
-        var now = Environment.TickCount64;
-        if (now - _lastPadUiUpdate < 33) return;
-        _lastPadUiUpdate = now;
-        Dispatcher.BeginInvoke(() => ShowState(state));
+        bool schedule;
+        lock (_uiGate)
+        {
+            _uiPending = state;
+            schedule = _uiQueued == 0;
+            _uiQueued = 1;
+        }
+        if (schedule) Dispatcher.BeginInvoke(_applyLiveState);
+    }
+
+    private void ApplyLiveState()
+    {
+        GamepadState state;
+        lock (_uiGate)
+        {
+            state = _uiPending;
+            _uiQueued = 0;
+        }
+        ShowState(state);
     }
 
     private void ShowState(GamepadState state)
     {
+        if (_hasPaintedState && state == _paintedState) return;
+        _hasPaintedState = true;
+        _paintedState = state;
         PadView.SetState(state);
-        LiveStateText.Text =
-            $"Buttons: {state.Buttons:X4}   LX: {state.LeftX,6}  LY: {state.LeftY,6}   " +
-            $"RX: {state.RightX,6}  RY: {state.RightY,6}   LT: {state.LeftTrigger,3}  RT: {state.RightTrigger,3}";
+        LiveStateText.Text = FormatLiveState(state);
+    }
+
+    private const int LiveStateLength = 82;
+
+    private static string FormatLiveState(GamepadState state)
+    {
+        return string.Create(LiveStateLength, state, static (dst, s) =>
+        {
+            var i = 0;
+            Append(dst, ref i, "Buttons: ");
+            AppendHex4(dst, ref i, s.Buttons);
+            Append(dst, ref i, "   LX: ");
+            AppendInt(dst, ref i, s.LeftX, 6);
+            Append(dst, ref i, "  LY: ");
+            AppendInt(dst, ref i, s.LeftY, 6);
+            Append(dst, ref i, "   RX: ");
+            AppendInt(dst, ref i, s.RightX, 6);
+            Append(dst, ref i, "  RY: ");
+            AppendInt(dst, ref i, s.RightY, 6);
+            Append(dst, ref i, "   LT: ");
+            AppendInt(dst, ref i, s.LeftTrigger, 3);
+            Append(dst, ref i, "  RT: ");
+            AppendInt(dst, ref i, s.RightTrigger, 3);
+        });
+    }
+
+    private static void Append(Span<char> dst, ref int i, string text)
+    {
+        text.AsSpan().CopyTo(dst[i..]);
+        i += text.Length;
+    }
+
+    private static void AppendHex4(Span<char> dst, ref int i, ushort value)
+    {
+        value.TryFormat(dst[i..], out _, "X4");
+        i += 4;
+    }
+
+    private static void AppendInt(Span<char> dst, ref int i, int value, int width)
+    {
+        Span<char> tmp = stackalloc char[8];
+        value.TryFormat(tmp, out var written);
+        var pad = width - written;
+        if (pad > 0) dst.Slice(i, pad).Fill(' ');
+        tmp[..written].CopyTo(dst[(i + (pad > 0 ? pad : 0))..]);
+        i += width;
     }
 
     // ---------- プロジェクト ----------
@@ -314,14 +418,19 @@ public partial class MainWindow : Window
         var userIndex = ControllerBox.SelectedIndex;
         return await Task.Run(() =>
         {
-            while (!ct.IsCancellationRequested)
+            PreciseWait.AcquireTimerResolution();
+            try
             {
-                if (XInput.TryGetState(userIndex, out var state, out _) &&
-                    (state.Buttons != 0 || state.LeftTrigger > 30 || state.RightTrigger > 30))
-                    return true;
-                Thread.Sleep(1);
+                while (!ct.IsCancellationRequested)
+                {
+                    if (XInput.TryGetState(userIndex, out var state, out _) &&
+                        (state.Buttons != 0 || state.LeftTrigger > 30 || state.RightTrigger > 30))
+                        return true;
+                    Thread.Sleep(1);
+                }
+                return false;
             }
-            return false;
+            finally { PreciseWait.ReleaseTimerResolution(); }
         }, ct);
     }
 
@@ -334,15 +443,20 @@ public partial class MainWindow : Window
         SetStatus($"画面トリガー待機中: ({x}, {y}) の色が変わると再生を開始します… (中止は再生停止ボタン、制限 120 秒)");
         return await Task.Run(() =>
         {
-            var deadline = Environment.TickCount64 + 120_000;
-            while (!ct.IsCancellationRequested && Environment.TickCount64 < deadline)
+            PreciseWait.AcquireTimerResolution();
+            try
             {
-                var sample = ScreenPixel.Sample(x, y);
-                if (sample is not null && ScreenPixel.Difference(sample.Value, baseline) > 60)
-                    return true;
-                Thread.Sleep(2);
+                var deadline = Environment.TickCount64 + 120_000;
+                while (!ct.IsCancellationRequested && Environment.TickCount64 < deadline)
+                {
+                    var sample = ScreenPixel.Sample(x, y);
+                    if (sample is not null && ScreenPixel.Difference(sample.Value, baseline) > 60)
+                        return true;
+                    Thread.Sleep(2);
+                }
+                return false;
             }
-            return false;
+            finally { PreciseWait.ReleaseTimerResolution(); }
         }, ct);
     }
 
@@ -372,9 +486,10 @@ public partial class MainWindow : Window
 
     // ---------- ViGEmBus ドライバ ----------
 
-    private void RefreshDriverButton()
+    private void RefreshDriverButton() => ApplyDriverButton(ViGEmDriverService.IsInstalled());
+
+    private void ApplyDriverButton(bool installed)
     {
-        var installed = ViGEmDriverService.IsInstalled();
         DriverButton.Content = installed ? "✓ ドライバ導入済み" : "ドライバをインストール";
         DriverButton.IsEnabled = !installed;
     }

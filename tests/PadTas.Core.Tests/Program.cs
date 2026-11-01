@@ -140,5 +140,58 @@ Recording segA, segB;
         merged.Frames[1].TimestampTicks == 4000);
 }
 
+// 6) 大きい記録: バッファ境界・大きな差分・負の差分をまたいでも保存/読込と連結が一致する
+{
+    var big = new Recording
+    {
+        ControllerName = "テスト🎮",
+        PollingRateHz = 8000,
+        QpcFrequency = 10_000_000,
+        CreatedAt = new DateTimeOffset(2024, 5, 6, 7, 8, 9, 123, TimeSpan.FromHours(9)),
+        DurationTicks = 50_000_000,
+    };
+    long t = 0;
+    big.Frames.Add(new InputFrame(0, GamepadState.Neutral));
+    for (var i = 1; i <= 5000; i++)
+    {
+        var delta = i % 97 == 0 ? 1L << (i % 40) : i * 3L;
+        t += delta;
+        big.Frames.Add(new InputFrame(t, new GamepadState(
+            (ushort)(i * 17), (short)(i - 2500), (short)-i, (short)(i % 32767), (short)(-i % 32767),
+            (byte)(i % 256), (byte)((i * 3) % 256))));
+    }
+    big.Frames.Add(new InputFrame(t - 10, new GamepadState(1, -32768, 32767, 0, 0, 255, 0)));
+
+    var path = Path.Combine(tmp, "big.padtas");
+    PadTasFile.Save(big, path);
+    var loaded = PadTasFile.Load(path);
+    Check("大容量のフレーム数", loaded.Frames.Count == big.Frames.Count);
+    Check("大容量の時刻", loaded.Frames[^1].TimestampTicks == big.Frames[^1].TimestampTicks
+        && loaded.Frames[100].TimestampTicks == big.Frames[100].TimestampTicks
+        && loaded.Frames[4000].TimestampTicks == big.Frames[4000].TimestampTicks);
+    Check("大容量の状態", loaded.Frames[1234].State == big.Frames[1234].State
+        && loaded.Frames[^1].State == big.Frames[^1].State);
+    Check("ヘッダー保持", loaded.ControllerName == big.ControllerName
+        && loaded.PollingRateHz == 8000 && loaded.QpcFrequency == 10_000_000
+        && loaded.DurationTicks == big.DurationTicks
+        && loaded.CreatedAt == big.CreatedAt);
+
+    var folder = Path.Combine(tmp, "merge-many");
+    var project = new TasProject { Name = "m", FolderPath = folder };
+    project.AppendSegment(big, "a");
+    project.AppendSegment(segA, "b");
+    project.AppendSegment(big, "c");
+    var merged = project.MergeAll();
+    Check("多数連結のフレーム数", merged.Frames.Count == big.Frames.Count * 2 + segA.Frames.Count);
+    Check("多数連結の先頭メタデータ", merged.ControllerName == big.ControllerName && merged.QpcFrequency == big.QpcFrequency);
+    Check("多数連結のオフセット",
+        merged.Frames[big.Frames.Count].TimestampTicks == big.EffectiveDurationTicks + segA.Frames[0].TimestampTicks);
+    Check("多数連結の終端",
+        merged.DurationTicks == big.EffectiveDurationTicks + segA.EffectiveDurationTicks + big.EffectiveDurationTicks);
+    Check("多数連結の状態",
+        merged.Frames[0].State == big.Frames[0].State
+        && merged.Frames[big.Frames.Count + segA.Frames.Count].State == big.Frames[0].State);
+}
+
 Console.WriteLine(failures == 0 ? "ALL TESTS PASSED" : $"{failures} FAILURES");
 return failures;

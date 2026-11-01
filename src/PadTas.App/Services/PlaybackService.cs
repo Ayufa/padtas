@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PadTas.Core;
 
 namespace PadTas.App.Services;
@@ -5,7 +6,7 @@ namespace PadTas.App.Services;
 /// <summary>
 /// 再生サービス。各フレームを「再生開始時刻 + フレーム相対時刻」の絶対期限で送るため、
 /// 途中で多少引っかかっても後のフレームが遅れて累積しない (ドリフトなし)。
-/// 期限直前はスピン待機で詰める。
+/// 期限の手前は高分解能タイマで待ち、直前だけスピンで詰める。
 /// </summary>
 public sealed class PlaybackService
 {
@@ -37,41 +38,58 @@ public sealed class PlaybackService
         _cts = null;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void Loop(Recording recording, IVirtualGamepad output, CancellationToken token)
     {
+        PreciseWait.AcquireTimerResolution();
         try
         {
-            var start = QpcClock.Now;
-            Started?.Invoke(start);
-            for (var i = 0; i < recording.Frames.Count; i++)
+            try
             {
-                if (token.IsCancellationRequested) break;
-                var due = PlaybackPlanner.DueTimestamp(recording, start, i);
-                WaitUntil(due, token);
-                if (token.IsCancellationRequested) break;
-                output.Send(recording.Frames[i].State);
-                StateSent?.Invoke(recording.Frames[i].State);
-                Progress?.Invoke(i + 1, recording.Frames.Count);
+                var start = QpcClock.Now;
+                Started?.Invoke(start);
+                var frames = recording.Frames;
+                var count = frames.Count;
+                var freq = QpcClock.Frequency;
+                var uiInterval = freq * 33 / 1000;
+                if (uiInterval < 1) uiInterval = 1;
+                var nextUi = start;
+                var onState = StateSent;
+                var onProgress = Progress;
+                Func<bool> stop = () => token.IsCancellationRequested;
+                for (var i = 0; i < count; i++)
+                {
+                    if (token.IsCancellationRequested) break;
+                    var frame = frames[i];
+                    var due = PlaybackPlanner.DueTimestamp(recording, start, i);
+                    PreciseWait.WaitUntil(due, stop);
+                    if (token.IsCancellationRequested) break;
+                    output.Send(frame.State);
+                    if (onState is not null)
+                    {
+                        var now = QpcClock.Now;
+                        if (now >= nextUi)
+                        {
+                            nextUi = now + uiInterval;
+                            onState(frame.State);
+                        }
+                    }
+                    onProgress?.Invoke(i + 1, count);
+                }
+                // 終端まで最終状態を保持してから離す
+                var endDue = start + recording.EffectiveDurationTicks;
+                if (!token.IsCancellationRequested) PreciseWait.WaitUntil(endDue, stop);
             }
-            // 終端まで最終状態を保持してから離す
-            var endDue = start + recording.EffectiveDurationTicks;
-            if (!token.IsCancellationRequested) WaitUntil(endDue, token);
+            finally
+            {
+                output.ReleaseAll();
+                Finished?.Invoke();
+            }
         }
         finally
         {
-            output.ReleaseAll();
-            Finished?.Invoke();
-        }
-    }
-
-    private static void WaitUntil(long dueQpc, CancellationToken token)
-    {
-        while (!token.IsCancellationRequested)
-        {
-            var remaining = dueQpc - QpcClock.Now;
-            if (remaining <= 0) return;
-            if (remaining > QpcClock.Frequency / 500) Thread.Sleep(1);
-            else Thread.SpinWait(64);
+            PreciseWait.ReleaseThreadTimer();
+            PreciseWait.ReleaseTimerResolution();
         }
     }
 }

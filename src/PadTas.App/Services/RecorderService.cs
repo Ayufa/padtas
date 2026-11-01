@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using PadTas.Core;
 
 namespace PadTas.App.Services;
@@ -8,10 +8,11 @@ namespace PadTas.App.Services;
 ///
 /// 精度のための要点:
 /// - UI スレッドとは別の専用スレッドでポーリングし、優先度を Highest に上げる
-/// - ポーリング間隔は Stopwatch (QPC) ベースで刻み、残り 1ms 未満はスピンで詰める
-///   (Thread.Sleep の粒度 約15.6ms では 60fps のフレーム内精度すら出ないため)
+/// - ポーリング間隔は Stopwatch (QPC) の絶対期限で刻む。長い待ちは高分解能タイマ、
+///   期限直前だけスピン (Thread.Sleep の既定粒度 約15.6ms ではフレーム内精度が出ない)
 /// - 記録は「変化した瞬間だけ」。デッドゾーン等は一切かけず生値を保存する
-/// - ポーリング周期は 250 / 500 / 1000 (既定) / 2000 Hz から選択可能。
+/// - ライブ表示のイベントは約 30fps に間引く (記録自体は全サンプルをエンジンへ渡す)
+/// - ポーリング周期は 250 / 500 / 1000 (既定) / 2000 / 4000 / 8000 Hz から選択可能。
 ///   ただし実際に変化が観測できる速さはコントローラー自体のポーリングレート
 ///   (例: 純正 Xbox コントローラーは 125Hz 程度) が上限になる点に注意。
 /// </summary>
@@ -52,29 +53,44 @@ public sealed class RecorderService
         return Engine.Stop();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PollLoop(int userIndex, int pollingRateHz)
     {
-        var intervalTicks = QpcClock.Frequency / pollingRateHz;
-        var next = QpcClock.Now;
-        while (_running)
+        PreciseWait.AcquireTimerResolution();
+        try
         {
-            if (XInput.TryGetState(userIndex, out var state, out _))
-            {
-                Engine.Feed(QpcClock.Now, state);
-                LiveState?.Invoke(state);
-            }
-
-            next += intervalTicks;
-            // 期限まで: 長い分は Sleep(1) で譲り、最後の数百µs はスピンで正確に合わせる
+            var freq = QpcClock.Frequency;
+            var intervalTicks = freq / pollingRateHz;
+            var uiInterval = freq * 33 / 1000;
+            if (uiInterval < 1) uiInterval = 1;
+            var next = QpcClock.Now;
+            var nextUi = next;
+            Func<bool> stop = () => !_running;
             while (_running)
             {
-                var remaining = next - QpcClock.Now;
-                if (remaining <= 0) break;
-                if (remaining > QpcClock.Frequency / 500) Thread.Sleep(1); // >2ms
-                else Thread.SpinWait(64);
+                if (XInput.TryGetState(userIndex, out var state, out _))
+                {
+                    var now = QpcClock.Now;
+                    // 1 LSB でも変化すればフレームになる。ここは間引かない。
+                    Engine.Feed(now, state);
+                    if (now >= nextUi)
+                    {
+                        nextUi = now + uiInterval;
+                        LiveState?.Invoke(state);
+                    }
+                }
+
+                next += intervalTicks;
+                PreciseWait.WaitUntil(next, stop);
+                // 大幅に遅れた場合は次周期を現在に引き直す (遅延を伝播させない)
+                var after = QpcClock.Now;
+                if (after - next > intervalTicks * 4) next = after;
             }
-            // 大幅に遅れた場合は次周期を現在に引き直す (遅延を伝播させない)
-            if (QpcClock.Now - next > intervalTicks * 4) next = QpcClock.Now;
+        }
+        finally
+        {
+            PreciseWait.ReleaseThreadTimer();
+            PreciseWait.ReleaseTimerResolution();
         }
     }
 }

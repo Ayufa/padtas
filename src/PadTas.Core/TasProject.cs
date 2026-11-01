@@ -23,13 +23,15 @@ public sealed class TasProject
 
     public const string ManifestFileName = "project.json";
 
+    private static readonly JsonSerializerOptions ManifestOptions = new() { WriteIndented = true };
+
     // ---------- 保存 / 読込 ----------
 
     public void SaveManifest()
     {
         if (FolderPath is null) throw new InvalidOperationException("FolderPath が未設定です。");
         Directory.CreateDirectory(FolderPath);
-        var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(this, ManifestOptions);
         File.WriteAllText(Path.Combine(FolderPath, ManifestFileName), json);
     }
 
@@ -117,16 +119,18 @@ public sealed class TasProject
         long offset = 0;
         foreach (var segment in Segments)
         {
-            var rec = LoadSegment(segment);
-            if (merged.Frames.Count == 0)
+            if (FolderPath is null) throw new InvalidOperationException("FolderPath が未設定です。");
+            // フレームがまだ無い間は、そのセグメントのヘッダーを採用する
+            // (空セグメントが続いたあとの最初の中身で上書きされる。従来と同じ)。
+            var adoptHeader = merged.Frames.Count == 0;
+            var info = PadTasFile.ReadInto(Path.Combine(FolderPath, segment.FileName), merged.Frames, offset);
+            if (adoptHeader)
             {
-                merged.ControllerName = rec.ControllerName;
-                merged.PollingRateHz = rec.PollingRateHz;
-                merged.QpcFrequency = rec.QpcFrequency;
+                merged.ControllerName = info.ControllerName;
+                merged.PollingRateHz = info.PollingRateHz;
+                merged.QpcFrequency = info.QpcFrequency;
             }
-            foreach (var frame in rec.Frames)
-                merged.Frames.Add(new InputFrame(offset + frame.TimestampTicks, frame.State));
-            offset += rec.EffectiveDurationTicks;
+            offset += info.EffectiveDurationTicks;
         }
         merged.DurationTicks = offset;
         return merged;

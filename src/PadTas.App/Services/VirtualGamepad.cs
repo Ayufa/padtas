@@ -35,20 +35,20 @@ public sealed class ViGEmGamepad : IVirtualGamepad
     public void Send(GamepadState s)
     {
         var b = (GamepadButtons)s.Buttons;
-        _pad.SetButtonState(Xbox360Button.A, b.HasFlag(GamepadButtons.A));
-        _pad.SetButtonState(Xbox360Button.B, b.HasFlag(GamepadButtons.B));
-        _pad.SetButtonState(Xbox360Button.X, b.HasFlag(GamepadButtons.X));
-        _pad.SetButtonState(Xbox360Button.Y, b.HasFlag(GamepadButtons.Y));
-        _pad.SetButtonState(Xbox360Button.Start, b.HasFlag(GamepadButtons.Start));
-        _pad.SetButtonState(Xbox360Button.Back, b.HasFlag(GamepadButtons.Back));
-        _pad.SetButtonState(Xbox360Button.LeftShoulder, b.HasFlag(GamepadButtons.LeftShoulder));
-        _pad.SetButtonState(Xbox360Button.RightShoulder, b.HasFlag(GamepadButtons.RightShoulder));
-        _pad.SetButtonState(Xbox360Button.LeftThumb, b.HasFlag(GamepadButtons.LeftThumb));
-        _pad.SetButtonState(Xbox360Button.RightThumb, b.HasFlag(GamepadButtons.RightThumb));
-        _pad.SetButtonState(Xbox360Button.Up, b.HasFlag(GamepadButtons.DPadUp));
-        _pad.SetButtonState(Xbox360Button.Down, b.HasFlag(GamepadButtons.DPadDown));
-        _pad.SetButtonState(Xbox360Button.Left, b.HasFlag(GamepadButtons.DPadLeft));
-        _pad.SetButtonState(Xbox360Button.Right, b.HasFlag(GamepadButtons.DPadRight));
+        _pad.SetButtonState(Xbox360Button.A, Down(b, GamepadButtons.A));
+        _pad.SetButtonState(Xbox360Button.B, Down(b, GamepadButtons.B));
+        _pad.SetButtonState(Xbox360Button.X, Down(b, GamepadButtons.X));
+        _pad.SetButtonState(Xbox360Button.Y, Down(b, GamepadButtons.Y));
+        _pad.SetButtonState(Xbox360Button.Start, Down(b, GamepadButtons.Start));
+        _pad.SetButtonState(Xbox360Button.Back, Down(b, GamepadButtons.Back));
+        _pad.SetButtonState(Xbox360Button.LeftShoulder, Down(b, GamepadButtons.LeftShoulder));
+        _pad.SetButtonState(Xbox360Button.RightShoulder, Down(b, GamepadButtons.RightShoulder));
+        _pad.SetButtonState(Xbox360Button.LeftThumb, Down(b, GamepadButtons.LeftThumb));
+        _pad.SetButtonState(Xbox360Button.RightThumb, Down(b, GamepadButtons.RightThumb));
+        _pad.SetButtonState(Xbox360Button.Up, Down(b, GamepadButtons.DPadUp));
+        _pad.SetButtonState(Xbox360Button.Down, Down(b, GamepadButtons.DPadDown));
+        _pad.SetButtonState(Xbox360Button.Left, Down(b, GamepadButtons.DPadLeft));
+        _pad.SetButtonState(Xbox360Button.Right, Down(b, GamepadButtons.DPadRight));
         _pad.SetAxisValue(Xbox360Axis.LeftThumbX, s.LeftX);
         _pad.SetAxisValue(Xbox360Axis.LeftThumbY, s.LeftY);
         _pad.SetAxisValue(Xbox360Axis.RightThumbX, s.RightX);
@@ -59,6 +59,8 @@ public sealed class ViGEmGamepad : IVirtualGamepad
     }
 
     public void ReleaseAll() => Send(GamepadState.Neutral);
+
+    private static bool Down(GamepadButtons value, GamepadButtons flag) => (value & flag) != 0;
 
     public void Dispose()
     {

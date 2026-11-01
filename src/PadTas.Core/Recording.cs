@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 
 namespace PadTas.Core;
 
@@ -59,7 +60,8 @@ public sealed class RecorderEngine
 {
     private readonly int _analogEpsilon;
     private long _startTimestamp;
-    private GamepadState? _lastRecorded;
+    private GamepadState _lastRecorded;
+    private bool _hasLast;
 
     public RecorderEngine(int analogEpsilon = 0) => _analogEpsilon = analogEpsilon;
 
@@ -69,25 +71,33 @@ public sealed class RecorderEngine
     public void Start(Recording header)
     {
         Current = header;
+        // 変化が密でも、記録開始直後の配列拡張でポーリングが止まらないようにする。
+        var hint = header.PollingRateHz > 0 ? header.PollingRateHz * 8 : 8192;
+        if (hint > 262_144) hint = 262_144;
+        if (Current.Frames.Capacity < hint)
+            Current.Frames.EnsureCapacity(hint);
         _startTimestamp = QpcClock.Now;
-        _lastRecorded = null;
+        _hasLast = false;
+        _lastRecorded = default;
         IsRecording = true;
         // 開始直後の状態は必ず 1 フレーム目として記録する (続き記録の接続点になる)
         Feed(QpcClock.Now, GamepadState.Neutral, force: true);
     }
 
     /// <summary>ポーリングで得たサンプルを 1 つ渡す。変化がなければ何もしない。</summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void Feed(long qpcTimestamp, GamepadState state, bool force = false)
     {
         if (!IsRecording) return;
         var relative = qpcTimestamp - _startTimestamp;
         if (relative < 0) relative = 0;
 
-        if (!force && _lastRecorded is { } last && !state.DiffersFrom(last, _analogEpsilon))
+        if (!force && _hasLast && !state.DiffersFrom(_lastRecorded, _analogEpsilon))
             return;
 
         Current.Frames.Add(new InputFrame(relative, state));
         _lastRecorded = state;
+        _hasLast = true;
     }
 
     public Recording Stop()

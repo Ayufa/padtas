@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using PadTas.Core;
 
 namespace PadTas.App.Services;
@@ -16,11 +17,21 @@ namespace PadTas.App.Services;
 /// </summary>
 public sealed class PlaybackVerifier
 {
-    private readonly Dictionary<int, List<(long Qpc, GamepadState State)>> _samples = new();
+    private readonly List<(long Qpc, GamepadState State)>[] _slots;
+    private readonly object _gate = new();
+    private readonly bool[] _seen = new bool[4];
+    private readonly int[] _seenOrder = new int[4];
+    private int _seenCount;
     private Thread? _thread;
     private volatile bool _running;
     private Recording? _expected;
     private long _startQpc;
+
+    public PlaybackVerifier()
+    {
+        _slots = new List<(long Qpc, GamepadState State)>[4];
+        for (var i = 0; i < 4; i++) _slots[i] = new(8192);
+    }
 
     public sealed record Result(string Summary, string Detail);
 
@@ -28,7 +39,12 @@ public sealed class PlaybackVerifier
     {
         _startQpc = startQpc;
         _expected = expected;
-        _samples.Clear();
+        lock (_gate)
+        {
+            _seenCount = 0;
+            Array.Clear(_seen);
+            for (var i = 0; i < 4; i++) _slots[i].Clear();
+        }
         _running = true;
         _thread = new Thread(PollLoop)
         {
@@ -39,61 +55,91 @@ public sealed class PlaybackVerifier
         _thread.Start();
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private void PollLoop()
     {
-        var interval = QpcClock.Frequency / 1000;
-        var next = QpcClock.Now;
-        while (_running)
+        PreciseWait.AcquireTimerResolution();
+        try
         {
-            var now = QpcClock.Now;
-            for (var slot = 0; slot < 4; slot++)
-            {
-                if (!XInput.TryGetState(slot, out var state, out _)) continue;
-                lock (_samples)
-                {
-                    if (!_samples.TryGetValue(slot, out var list))
-                        _samples[slot] = list = new List<(long, GamepadState)>();
-                    list.Add((now, state));
-                }
-            }
-            next += interval;
+            var freq = QpcClock.Frequency;
+            var interval = freq / 1000;
+            var next = QpcClock.Now;
+            Func<bool> stop = () => !_running;
+            Span<(int Slot, GamepadState State)> found = stackalloc (int, GamepadState)[4];
             while (_running)
             {
-                var remaining = next - QpcClock.Now;
-                if (remaining <= 0) break;
-                if (remaining > QpcClock.Frequency / 500) Thread.Sleep(1);
-                else Thread.SpinWait(32);
+                var now = QpcClock.Now;
+                // XInput はロックの外。追加だけを一度にまとめる (スロットごとのロックをやめる)。
+                var foundCount = 0;
+                for (var slot = 0; slot < 4; slot++)
+                {
+                    if (!XInput.TryGetState(slot, out var state, out _)) continue;
+                    found[foundCount++] = (slot, state);
+                }
+                if (foundCount > 0)
+                {
+                    lock (_gate)
+                    {
+                        for (var i = 0; i < foundCount; i++)
+                        {
+                            var slot = found[i].Slot;
+                            if (!_seen[slot])
+                            {
+                                _seen[slot] = true;
+                                _seenOrder[_seenCount++] = slot;
+                            }
+                            _slots[slot].Add((now, found[i].State));
+                        }
+                    }
+                }
+                next += interval;
+                PreciseWait.WaitUntil(next, stop);
+                if (QpcClock.Now - next > interval * 4) next = QpcClock.Now;
             }
-            if (QpcClock.Now - next > interval * 4) next = QpcClock.Now;
+        }
+        finally
+        {
+            PreciseWait.ReleaseThreadTimer();
+            PreciseWait.ReleaseTimerResolution();
         }
     }
 
     public Result StopAndEvaluate()
     {
         _running = false;
-        _thread?.Join(500);
+        var thread = _thread;
+        var stopped = thread is null || thread.Join(500);
         _thread = null;
 
         if (_expected is null)
             return new Result("検証データなし", "Begin が呼ばれていません。");
 
-        // 仮想コントローラー候補: 非ニュートラルなサンプルが最も多いスロット
-        int slot = -1, bestNonNeutral = 0;
-        lock (_samples)
+        // 仮想コントローラー候補: 非ニュートラルなサンプルが最も多いスロット。
+        // 同数のときは、最初に観測したスロットを優先する (従来の辞書挿入順と同じ)。
+        int slot;
+        List<(long Qpc, GamepadState State)> samples;
+        lock (_gate)
         {
-            foreach (var (s, list) in _samples)
+            slot = -1;
+            var bestNonNeutral = 0;
+            for (var i = 0; i < _seenCount; i++)
             {
-                var n = list.Count(x => x.State != GamepadState.Neutral);
+                var s = _seenOrder[i];
+                var list = _slots[s];
+                var n = 0;
+                for (var j = 0; j < list.Count; j++)
+                {
+                    if (list[j].State != GamepadState.Neutral) n++;
+                }
                 if (n > bestNonNeutral) { bestNonNeutral = n; slot = s; }
             }
+            if (slot < 0 || bestNonNeutral == 0)
+                return new Result(
+                    "仮想コントローラーを読み戻しで検出できませんでした (ドライバ未導入の可能性)",
+                    "全スロットで非ニュートラルな入力が観測されませんでした。");
+            // スレッドが止まっていればコピーしない。まだ動いていればスナップショットを切る。
+            samples = stopped ? _slots[slot] : _slots[slot].ToList();
         }
-        if (slot < 0 || bestNonNeutral == 0)
-            return new Result(
-                "仮想コントローラーを読み戻しで検出できませんでした (ドライバ未導入の可能性)",
-                "全スロットで非ニュートラルな入力が観測されませんでした。");
-
-        List<(long Qpc, GamepadState State)> samples;
-        lock (_samples) samples = _samples[slot].ToList();
 
         var frames = _expected.Frames;
         var minWindow = QpcClock.Frequency * 4 / 1000; // 4ms

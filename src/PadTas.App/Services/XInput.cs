@@ -33,9 +33,12 @@ public static class XInput
     /// <summary>指定スロットの現在状態を読む。未接続なら false。値は生値のまま返す。</summary>
     public static bool TryGetState(int userIndex, out GamepadState state, out uint packetNumber)
     {
-        state = GamepadState.Neutral;
-        packetNumber = 0;
-        if (XInputGetState((uint)userIndex, out var native) != ErrorSuccess) return false;
+        if (XInputGetState((uint)userIndex, out var native) != ErrorSuccess)
+        {
+            state = GamepadState.Neutral;
+            packetNumber = 0;
+            return false;
+        }
         packetNumber = native.PacketNumber;
         state = new GamepadState(
             native.Gamepad.Buttons,
